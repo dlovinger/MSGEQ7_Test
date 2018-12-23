@@ -1,0 +1,141 @@
+/*
+  Copyright (c) 2014-2015 NicoHood
+  See the readme for credit to other people.
+
+  MSGEQ7 Serial example
+  Output via Serial
+
+  Needs no special hardware and displays raw values on the Serial monitor.
+
+  Reads MSGEQ7 IC with 7 different frequencys from range 0-255
+  63Hz, 160Hz, 400Hz, 1kHz, 2.5kHz, 6.25KHz, 16kHz
+*/
+
+#define FASTLED_ALLOW_INTERRUPTS 0
+#include "FastLED.h"
+
+//LED setup
+#define DATA_PIN    1
+#define DATA_PIN_2  2
+#define LED_TYPE    WS2812B
+#define COLOR_ORDER GRB
+#define NUM_LEDS     240
+uint8_t max_bright = 125;
+
+CRGB leds[NUM_LEDS]; // Define the array of leds
+CRGB leds2[NUM_LEDS]; // Define the array of leds
+
+
+// MSGEQ7
+#include "MSGEQ7.h"
+#define pinAnalog A0
+#define pinReset 16
+#define pinStrobe 0
+#define MSGEQ7_INTERVAL ReadsPerSecond(50)
+#define MSGEQ7_SMOOTH 200
+
+CMSGEQ7<MSGEQ7_SMOOTH, pinReset, pinStrobe, pinAnalog> MSGEQ7;
+
+//other
+CRGBPalette16 gCurrentPalette = OceanColors_p;
+#define CENTER_LED    NUM_LEDS / 2
+
+uint8_t bass; 
+uint8_t mid;
+uint8_t high;
+
+void setup() {
+  // This will set the IC ready for reading
+  MSGEQ7.begin();
+
+  // Serial setup with faster baud rate gives more FPS (115200)
+  Serial.begin(115200);
+  Serial.println(F("Startup"));
+
+  LEDS.addLeds<LED_TYPE, DATA_PIN, COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  //LEDS.addLeds<LED_TYPE, DATA_PIN_2, COLOR_ORDER>(leds2, NUM_LEDS).setCorrection(TypicalLEDStrip);
+
+  FastLED.setBrightness(max_bright);
+
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  FastLED.show();
+  
+
+  pinMode(pinAnalog, INPUT);
+  pinMode(pinReset, OUTPUT);
+  pinMode(pinStrobe, OUTPUT);
+
+  digitalWrite(pinReset, LOW);
+  digitalWrite(pinStrobe, HIGH);
+}
+
+void loop() {
+
+  readAudio();
+
+  EVERY_N_MILLISECONDS(20) { spectrumPaletteWaves(); }
+  FastLED.show();
+}
+
+void readAudio() {
+  bool newReading = MSGEQ7.read(MSGEQ7_INTERVAL);
+
+  if (newReading) {
+    bass = MSGEQ7.get(MSGEQ7_BASS); 
+    mid = MSGEQ7.get(MSGEQ7_MID);
+    high = MSGEQ7.get(MSGEQ7_HIGH);
+    
+    bass = mapNoise(bass);
+    mid = mapNoise(mid);
+    high = mapNoise(high);
+
+    // 1st channel
+    Serial.print(bass);
+    Serial.print(F(" L\t"));
+    
+    // 2st channel
+    Serial.print(mid);
+    Serial.print(F(" M\t"));
+      
+    // 3rd channel
+    Serial.print(high);
+    Serial.print(F(" H\t"));
+
+    Serial.println();
+  }
+  
+}
+
+void spectrumPaletteWaves()
+{
+
+  CRGB color6 = ColorFromPalette(gCurrentPalette, high, high);
+  CRGB color5 = ColorFromPalette(gCurrentPalette, mid / 8, mid / 8);
+  CRGB color1 = ColorFromPalette(gCurrentPalette, bass / 2, bass / 2);
+
+  CRGB color = nblend(color6, color5, 256 / 8);
+  color = nblend(color, color1, 256 / 2);
+
+  leds[CENTER_LED] = color;
+  leds[CENTER_LED].fadeToBlackBy(mid / 12);
+
+  leds[CENTER_LED - 1] = color;
+  leds[CENTER_LED - 1].fadeToBlackBy(mid / 12);
+
+  leds2[CENTER_LED] = color;
+  leds2[CENTER_LED].fadeToBlackBy(mid / 12);
+
+  leds2[CENTER_LED - 1] = color;
+  leds2[CENTER_LED - 1].fadeToBlackBy(mid / 12);
+
+  //move to the left
+  for (int i = NUM_LEDS - 1; i > CENTER_LED; i--) {
+    leds[i] = leds[i - 1];
+    leds2[i] = leds2[i - 1];
+  }
+  // move to the right
+  for (int i = 0; i < CENTER_LED; i++) {
+    leds[i] = leds[i + 1];
+    leds2[i] = leds2[i + 1];
+  }
+}
